@@ -374,7 +374,7 @@ async function saveJob(){
     owner:document.getElementById('nj-owner').value.trim(),
     consultant:document.getElementById('nj-consultant').value.trim(),
     contractor:document.getElementById('nj-contractor').value.trim(),
-    products:[...selectedProductIds].map(id=>products.find(p=>p.id===id)).filter(Boolean).map(p=>({...p})),
+    products:[...pickerSelected].map(id=>products.find(p=>p.id===id)).filter(Boolean).map(p=>({...p})),
     created:Date.now()};
   jobs.unshift(j);
   await dbPut('jobs',j);
