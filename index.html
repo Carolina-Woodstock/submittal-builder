@@ -41,14 +41,18 @@ textarea{resize:vertical;min-height:64px}
 .search-wrap{position:relative;margin-bottom:12px}
 .search-wrap input{padding-left:34px}
 .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:16px;pointer-events:none}
-.product-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:5px;cursor:pointer;transition:all .15s}
+.product-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all .15s}
 .product-row:hover{border-color:var(--border-strong);background:var(--surface2)}
 .product-row.selected{border-color:var(--accent);background:var(--accent-light)}
 .check-box{width:18px;height:18px;border:1.5px solid var(--border-strong);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
 .check-box.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .prow-name{font-weight:500;font-size:13px}.prow-meta{font-size:12px;color:var(--muted)}
-.cat-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:12px 0 5px;border-top:1px solid var(--border);margin-top:4px}
-.cat-label:first-child{border-top:none;padding-top:4px}
+.picker-cols{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:6px}
+@media (max-width:640px){.picker-cols{grid-template-columns:1fr}}
+.cat-label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:10px 0 5px;border-top:1px solid var(--border);margin-top:2px;position:sticky;top:0;background:var(--surface);z-index:1}
+.cat-label:first-child{border-top:none;padding-top:0}
+.cat-select-all{cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;color:var(--accent);flex-shrink:0}
+.cat-select-all:hover{text-decoration:underline}
 .pdf-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:4px}
 .empty{text-align:center;padding:48px 0;color:var(--muted)}
 .empty i{font-size:36px;display:block;margin-bottom:10px;opacity:.4}
@@ -57,7 +61,7 @@ textarea{resize:vertical;min-height:64px}
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center;padding:16px;overflow-y:auto}
 .overlay.open{display:flex}
 .modal{background:var(--surface);border-radius:var(--radius-lg);padding:24px;width:100%;max-width:600px;max-height:92vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
-.modal-lg{max-width:700px}
+.modal-lg{max-width:820px}
 .modal-title{font-size:16px;font-weight:600;margin-bottom:20px}
 .pdf-upload-area{border:1.5px dashed var(--border-strong);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer;transition:all .15s;margin-top:8px}
 .pdf-upload-area:hover{border-color:var(--accent);background:var(--accent-light)}
@@ -95,18 +99,18 @@ textarea{resize:vertical;min-height:64px}
 </div>
 <div class="overlay" id="overlay-newjob">
   <div class="modal modal-lg">
-    <div class="modal-title">New project</div>
+    <div class="modal-title" id="nj-modal-title">New project</div>
     <div class="grid2 form-row"><div><label>Project name *</label><input type="text" id="nj-name" placeholder="Madison Heights"></div><div><label>Project number</label><input type="text" id="nj-num" placeholder="N/A"></div></div>
     <div class="form-row"><label>Project address</label><textarea id="nj-addr" style="min-height:56px" placeholder="4900 Summerlinn Way&#10;West Linn, OR 97068"></textarea></div>
     <div class="grid2 form-row"><div><label>Contract for</label><input type="text" id="nj-contract" placeholder="5 Buildings"></div><div><label>Date</label><input type="text" id="nj-date"></div></div>
     <div class="form-row"><label>Owner name and address</label><textarea id="nj-owner" style="min-height:56px"></textarea></div>
     <div class="form-row"><label>Consultant name and address</label><textarea id="nj-consultant" style="min-height:56px" placeholder="Leave blank if none"></textarea></div>
     <div class="form-row"><label>Contractor name and address</label><textarea id="nj-contractor" style="min-height:72px"></textarea></div>
-    <div class="form-row"><label>Start from template</label><select id="nj-template" onchange="applyJobTemplate()"><option value="">-- No template --</option></select></div>
+    <div class="form-row" id="nj-template-row"><label>Start from template</label><select id="nj-template" onchange="applyJobTemplate()"><option value="">-- No template --</option></select></div>
     <label style="margin-bottom:8px">Select products for this project</label>
     <div class="search-wrap"><i class="ti ti-search search-icon"></i><input type="text" placeholder="Search products..." oninput="renderPicker(this.value,'job-picker')"></div>
-    <div id="job-picker" style="max-height:280px;overflow-y:auto"></div>
-    <div class="flex-end"><button class="btn" onclick="closeOverlay('overlay-newjob')">Cancel</button><button class="btn btn-primary" onclick="saveJob()">Create project</button></div>
+    <div id="job-picker" style="max-height:44vh;overflow-y:auto"></div>
+    <div class="flex-end"><button class="btn" onclick="closeOverlay('overlay-newjob')">Cancel</button><button class="btn btn-primary" id="nj-save-btn" onclick="saveJob()">Create project</button></div>
   </div>
 </div>
 <div class="overlay" id="overlay-viewjob">
@@ -114,6 +118,7 @@ textarea{resize:vertical;min-height:64px}
     <div id="viewjob-content"></div>
     <div class="flex-end">
       <button class="btn btn-danger btn-sm" onclick="deleteCurrentJob()"><i class="ti ti-trash"></i> Delete</button>
+      <button class="btn btn-sm" onclick="openEditJob()"><i class="ti ti-pencil"></i> Edit project</button>
       <button class="btn btn-sm" onclick="closeOverlay('overlay-viewjob')">Close</button>
       <button class="btn btn-primary btn-sm" onclick="generatePDF()"><i class="ti ti-download"></i> Download PDF package</button>
     </div>
@@ -153,7 +158,7 @@ textarea{resize:vertical;min-height:64px}
     <div class="form-row"><label>Template name *</label><input type="text" id="et-name" placeholder="Steep slope roofing"></div>
     <label style="margin-bottom:8px">Products in this template</label>
     <div class="search-wrap"><i class="ti ti-search search-icon"></i><input type="text" placeholder="Search products..." oninput="renderPicker(this.value,'tmpl-picker')"></div>
-    <div id="tmpl-picker" style="max-height:320px;overflow-y:auto"></div>
+    <div id="tmpl-picker" style="max-height:50vh;overflow-y:auto"></div>
     <div class="flex-end"><button class="btn" onclick="closeOverlay('overlay-template')">Cancel</button><button class="btn btn-primary" onclick="saveTemplate()">Save template</button></div>
   </div>
 </div>
@@ -169,8 +174,8 @@ const SEED_TEMPLATES=[{"id": "t1", "name": "Steep slope roofing", "product_ids":
 
 let sb=null;
 let products=[],jobs=[],templates=[];
-let pickerSelected=new Set(),editingProductId=null,editingTemplateId=null,viewingJobId=null,editingJobProductIdx=null;
-let pendingPdfFile=null;
+let pickerSelected=new Set(),editingProductId=null,editingTemplateId=null,viewingJobId=null,editingJobProductIdx=null,editingJobId=null;
+let pendingPdfFile=null,duplicatedPdfMeta=null;
 
 async function init(){
   try{
@@ -242,13 +247,40 @@ function renderJobs(){
 }
 
 function openNewJob(){
+  editingJobId=null;
   pickerSelected=new Set();
   ['nj-name','nj-num','nj-addr','nj-contract','nj-owner','nj-consultant'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('nj-date').value=new Date().toLocaleDateString('en-US');
   document.getElementById('nj-contractor').value='Woodstock Construction\n4020 SE International Way # C103\nMilwaukie, OR 97222';
+  document.getElementById('nj-modal-title').textContent='New project';
+  document.getElementById('nj-save-btn').textContent='Create project';
+  document.getElementById('nj-template-row').style.display='';
   const sel=document.getElementById('nj-template');
   sel.innerHTML='<option value="">-- No template --</option>'+templates.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
   renderPicker('','job-picker');
+  openOverlay('overlay-newjob');
+}
+
+function openEditJob(){
+  const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
+  editingJobId=j.id;
+  pickerSelected=new Set((j.products||[]).map(p=>p.id));
+  document.getElementById('nj-name').value=j.name||'';
+  document.getElementById('nj-num').value=j.number||'';
+  document.getElementById('nj-addr').value=j.project_address||'';
+  document.getElementById('nj-contract').value=j.contract_for||'';
+  document.getElementById('nj-date').value=j.date||'';
+  document.getElementById('nj-owner').value=j.owner||'';
+  document.getElementById('nj-consultant').value=j.consultant||'';
+  document.getElementById('nj-contractor').value=j.contractor||'';
+  document.getElementById('nj-modal-title').textContent='Edit project';
+  document.getElementById('nj-save-btn').textContent='Save changes';
+  document.getElementById('nj-template-row').style.display='none';
+  const sel=document.getElementById('nj-template');
+  sel.innerHTML='<option value="">-- No template --</option>'+templates.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  sel.value='';
+  renderPicker('','job-picker');
+  closeOverlay('overlay-viewjob');
   openOverlay('overlay-newjob');
 }
 
@@ -262,8 +294,15 @@ function applyJobTemplate(){
 async function saveJob(){
   const name=document.getElementById('nj-name').value.trim();
   if(!name){alert('Please enter a project name.');return;}
-  const selectedProds=[...pickerSelected].map(id=>products.find(p=>p.id===id)).filter(Boolean).map(p=>({...p}));
-  const j={id:'j'+Date.now(),name,
+  const existing=editingJobId?jobs.find(x=>x.id===editingJobId):null;
+  const prevProds=existing?(existing.products||[]):[];
+  const selectedProds=[...pickerSelected].map(id=>{
+    const kept=prevProds.find(p=>p.id===id);
+    if(kept)return kept;
+    const lib=products.find(p=>p.id===id);
+    return lib?{...lib}:null;
+  }).filter(Boolean);
+  const fields={name,
     number:document.getElementById('nj-num').value.trim(),
     project_address:document.getElementById('nj-addr').value.trim(),
     contract_for:document.getElementById('nj-contract').value.trim(),
@@ -271,7 +310,16 @@ async function saveJob(){
     owner:document.getElementById('nj-owner').value.trim(),
     consultant:document.getElementById('nj-consultant').value.trim(),
     contractor:document.getElementById('nj-contractor').value.trim(),
-    products:selectedProds,created:Date.now()};
+    products:selectedProds};
+  if(existing){
+    const {error}=await sb.from('jobs').update(fields).eq('id',existing.id);
+    if(error){alert('Error saving project: '+error.message);return;}
+    Object.assign(existing,fields);
+    editingJobId=null;
+    renderJobs();closeOverlay('overlay-newjob');notify('Project updated');
+    return;
+  }
+  const j={id:'j'+Date.now(),...fields,created:Date.now()};
   const {error}=await sb.from('jobs').insert(j);
   if(error){alert('Error saving project: '+error.message);return;}
   jobs.unshift(j);renderJobs();closeOverlay('overlay-newjob');notify('Project created');
@@ -349,12 +397,13 @@ function renderLibrary(q){
     ${ps.map(p=>`<div class="product-row" onclick="openEditProduct('${p.id}')">
       <div style="flex:1"><div class="prow-name">${p.pdf_url?'<span class="pdf-dot" title="Spec sheet attached"></span>':''}${p.product_name}</div>
       <div class="prow-meta">${p.manufacturer||'—'}${p.purpose?' · '+p.purpose:''}</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();duplicateProduct('${p.id}')" title="Duplicate this product"><i class="ti ti-copy"></i></button>
       <i class="ti ti-pencil" style="font-size:14px;color:var(--muted)"></i>
     </div>`).join('')}`).join('');
 }
 
 async function openEditProduct(id){
-  editingProductId=id;pendingPdfFile=null;
+  editingProductId=id;pendingPdfFile=null;duplicatedPdfMeta=null;
   document.getElementById('prod-modal-title').textContent=id?'Edit product':'Add product';
   const p=id?products.find(x=>x.id===id):null;
   const map={name:'product_name',mfr:'manufacturer',num:'product_number',purpose:'purpose',areas:'areas_of_use',size:'size',color:'color',plan:'plan_detail',other:'other',warranty:'warranty',maint:'maintenance'};
@@ -363,6 +412,20 @@ async function openEditProduct(id){
   renderPdfStatus(p);
   document.getElementById('remove-pdf-btn').style.display=(p&&p.pdf_url)?'inline-flex':'none';
   openOverlay('overlay-product');
+}
+
+function duplicateProduct(id){
+  const src=products.find(x=>x.id===id);if(!src)return;
+  editingProductId=null;pendingPdfFile=null;
+  duplicatedPdfMeta=src.pdf_url?{pdf_url:src.pdf_url,pdf_name:src.pdf_name}:null;
+  document.getElementById('prod-modal-title').textContent='Add product';
+  const map={name:'product_name',mfr:'manufacturer',num:'product_number',purpose:'purpose',areas:'areas_of_use',size:'size',color:'color',plan:'plan_detail',other:'other',warranty:'warranty',maint:'maintenance'};
+  Object.entries(map).forEach(([f,k])=>{document.getElementById('ep-'+f).value=k==='product_name'?(src[k]||'')+' (Copy)':(src[k]||'');});
+  document.getElementById('ep-cat').value=src.category||'Other';
+  renderPdfStatus(duplicatedPdfMeta);
+  document.getElementById('remove-pdf-btn').style.display=duplicatedPdfMeta?'inline-flex':'none';
+  openOverlay('overlay-product');
+  notify('Duplicated — adjust and save as a new product');
 }
 
 function renderPdfStatus(p){
@@ -391,7 +454,7 @@ async function removePdfAttachment(){
       p.pdf_url=null;p.pdf_name=null;
     }
   }
-  pendingPdfFile=null;renderPdfStatus(null);
+  pendingPdfFile=null;duplicatedPdfMeta=null;renderPdfStatus(null);
   document.getElementById('remove-pdf-btn').style.display='none';
 }
 
@@ -401,6 +464,9 @@ async function saveProduct(){
   notify('Saving...');
   const data={product_name:name,manufacturer:document.getElementById('ep-mfr').value,product_number:document.getElementById('ep-num').value,category:document.getElementById('ep-cat').value,purpose:document.getElementById('ep-purpose').value,areas_of_use:document.getElementById('ep-areas').value,size:document.getElementById('ep-size').value,color:document.getElementById('ep-color').value,plan_detail:document.getElementById('ep-plan').value,other:document.getElementById('ep-other').value,warranty:document.getElementById('ep-warranty').value,maintenance:document.getElementById('ep-maint').value};
   const productId=editingProductId||('p'+Date.now());
+  if(!editingProductId&&!pendingPdfFile&&duplicatedPdfMeta){
+    data.pdf_url=duplicatedPdfMeta.pdf_url;data.pdf_name=duplicatedPdfMeta.pdf_name;
+  }
   if(pendingPdfFile){
     const path=productId+'.pdf';
     const {error:ue}=await sb.storage.from('spec-sheets').upload(path,pendingPdfFile,{upsert:true,contentType:'application/pdf'});
@@ -419,6 +485,7 @@ async function saveProduct(){
     if(error){alert('Error saving: '+error.message);return;}
     products.push(data);
   }
+  duplicatedPdfMeta=null;
   renderLibrary(document.querySelector('#page-library .search-wrap input').value||'');
   closeOverlay('overlay-product');notify(editingProductId?'Product updated':'Product added');
 }
@@ -477,12 +544,23 @@ function renderPicker(q,containerId){
   const el=document.getElementById(containerId);
   const filtered=products.filter(p=>!q||p.product_name.toLowerCase().includes(q.toLowerCase())||(p.manufacturer||'').toLowerCase().includes(q.toLowerCase()));
   const bycat={};filtered.forEach(p=>{const c=p.category||'Other';if(!bycat[c])bycat[c]=[];bycat[c].push(p);});
-  el.innerHTML=Object.entries(bycat).sort((a,b)=>a[0].localeCompare(b[0])).map(([cat,ps])=>`
-    <div class="cat-label">${cat}</div>
-    ${ps.map(p=>`<div class="product-row${pickerSelected.has(p.id)?' selected':''}" onclick="togglePick('${p.id}','${containerId}')">
+  el.innerHTML=Object.entries(bycat).sort((a,b)=>a[0].localeCompare(b[0])).map(([cat,ps])=>{
+    const allOn=ps.every(p=>pickerSelected.has(p.id));
+    return `
+    <div class="cat-label"><span>${cat}</span><span class="cat-select-all" onclick="toggleCategoryPick('${esc(cat)}','${containerId}')">${allOn?'Clear all':'Select all'}</span></div>
+    <div class="picker-cols">${ps.map(p=>`<div class="product-row${pickerSelected.has(p.id)?' selected':''}" onclick="togglePick('${p.id}','${containerId}')">
       <div class="check-box${pickerSelected.has(p.id)?' on':''}"><i class="ti ti-check" style="font-size:11px"></i></div>
       <div style="flex:1"><div class="prow-name">${p.product_name}</div><div class="prow-meta">${p.manufacturer||'—'}${p.purpose?' · '+p.purpose:''}</div></div>
-    </div>`).join('')}`).join('');
+    </div>`).join('')}</div>`;
+  }).join('');
+}
+
+function toggleCategoryPick(cat,containerId){
+  const q=containerId==='job-picker'?(document.querySelector('#overlay-newjob .search-wrap input')?.value||''):(document.querySelector('#overlay-template .search-wrap input')?.value||'');
+  const ids=products.filter(p=>(p.category||'Other')===cat&&(!q||p.product_name.toLowerCase().includes(q.toLowerCase())||(p.manufacturer||'').toLowerCase().includes(q.toLowerCase()))).map(p=>p.id);
+  const allOn=ids.every(id=>pickerSelected.has(id));
+  if(allOn)ids.forEach(id=>pickerSelected.delete(id));else ids.forEach(id=>pickerSelected.add(id));
+  renderPicker(q,containerId);
 }
 
 function togglePick(id,containerId){
