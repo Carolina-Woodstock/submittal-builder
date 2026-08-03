@@ -395,7 +395,7 @@ function renderLibrary(q){
   el.innerHTML=Object.entries(bycat).sort((a,b)=>a[0].localeCompare(b[0])).map(([cat,ps])=>`
     <div class="cat-label">${cat} <span style="font-weight:400;text-transform:none;letter-spacing:0">(${ps.length})</span></div>
     ${ps.map(p=>`<div class="product-row" onclick="openEditProduct('${p.id}')">
-      <div style="flex:1"><div class="prow-name">${p.pdf_url?'<span class="pdf-dot" title="Spec sheet attached"></span>':''}${p.product_name}</div>
+      <div style="flex:1"><div class="prow-name">${p.pdf_url?`<a href="${p.pdf_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View attached spec sheet" style="text-decoration:none"><span class="pdf-dot"></span></a>`:''}${p.product_name}</div>
       <div class="prow-meta">${p.manufacturer||'—'}${p.purpose?' · '+p.purpose:''}</div></div>
       <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();duplicateProduct('${p.id}')" title="Duplicate this product"><i class="ti ti-copy"></i></button>
       <i class="ti ti-pencil" style="font-size:14px;color:var(--muted)"></i>
@@ -433,7 +433,7 @@ function renderPdfStatus(p){
   if(pendingPdfFile){
     el.innerHTML=`<div class="pdf-attached"><i class="ti ti-file-type-pdf" style="font-size:20px;color:var(--accent)"></i><div style="flex:1"><div style="font-weight:500;font-size:13px">${pendingPdfFile.name}</div><div style="font-size:12px;color:var(--muted)">Ready to save</div></div></div>`;
   }else if(p&&p.pdf_url){
-    el.innerHTML=`<div class="pdf-attached"><i class="ti ti-file-type-pdf" style="font-size:20px;color:var(--accent)"></i><div style="flex:1"><div style="font-weight:500;font-size:13px">${p.pdf_name||'Spec sheet'}</div><div style="font-size:12px;color:var(--muted)">Attached</div></div><label class="btn btn-sm" style="margin:0;cursor:pointer">Replace<input type="file" accept="application/pdf" style="display:none" onchange="handlePdfUpload(event)"></label></div>`;
+    el.innerHTML=`<div class="pdf-attached"><i class="ti ti-file-type-pdf" style="font-size:20px;color:var(--accent)"></i><div style="flex:1"><div style="font-weight:500;font-size:13px">${p.pdf_name||'Spec sheet'}</div><div style="font-size:12px;color:var(--muted)">Attached</div></div><a class="btn btn-sm" style="margin:0" href="${p.pdf_url}" target="_blank" rel="noopener">View</a><label class="btn btn-sm" style="margin:0;cursor:pointer">Replace<input type="file" accept="application/pdf" style="display:none" onchange="handlePdfUpload(event)"></label></div>`;
   }else{
     el.innerHTML=`<div class="pdf-upload-area"><label style="cursor:pointer;display:block"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--muted)"></i><span style="font-size:13px;color:var(--muted)">Click to upload spec sheet PDF</span><input type="file" accept="application/pdf" style="display:none" onchange="handlePdfUpload(event)"></label></div>`;
   }
