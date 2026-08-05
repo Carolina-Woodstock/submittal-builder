@@ -74,9 +74,19 @@ textarea{resize:vertical;min-height:64px}
 </style>
 </head>
 <body>
-<div class="app">
+<div class="overlay open" id="overlay-login">
+  <div class="modal" style="max-width:360px">
+    <div class="modal-title">Submittal Builder login</div>
+    <div class="form-row"><label>Email</label><input type="email" id="login-email" autocomplete="username"></div>
+    <div class="form-row"><label>Password</label><input type="password" id="login-password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div id="login-error" style="color:#b3261e;font-size:12.5px;margin-bottom:8px"></div>
+    <div class="flex-end" style="border-top:none;margin-top:4px;padding-top:0"><button class="btn btn-primary" id="login-btn" onclick="doLogin()">Log in</button></div>
+  </div>
+</div>
+<div class="app" id="app-root" style="display:none">
   <div class="header">
     <div><div class="header-title"><i class="ti ti-file-text"></i> Submittal Builder</div><div class="header-sub">Woodstock Construction</div></div>
+    <button class="btn btn-sm" onclick="doLogout()" style="margin-left:auto"><i class="ti ti-logout"></i> Log out</button>
   </div>
   <div class="nav">
     <button class="nav-btn active" onclick="showPage('projects',this)"><i class="ti ti-folder"></i> Projects</button>
@@ -177,25 +187,41 @@ let products=[],jobs=[],templates=[];
 let pickerSelected=new Set(),editingProductId=null,editingTemplateId=null,viewingJobId=null,editingJobProductIdx=null,editingJobId=null;
 let pendingPdfFile=null,duplicatedPdfMeta=null;
 
+async function boot(){
+  if(typeof supabase==='undefined'){document.getElementById('login-error').textContent='Supabase JS library failed to load from CDN.';return;}
+  sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  const {data:{session}}=await sb.auth.getSession();
+  if(session){showApp();}
+}
+
+function showApp(){
+  document.getElementById('overlay-login').classList.remove('open');
+  document.getElementById('app-root').style.display='';
+  init();
+}
+
+async function doLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const password=document.getElementById('login-password').value;
+  const errEl=document.getElementById('login-error');
+  errEl.textContent='';
+  if(!email||!password){errEl.textContent='Enter your email and password.';return;}
+  const btn=document.getElementById('login-btn');btn.disabled=true;btn.textContent='Logging in...';
+  const {error}=await sb.auth.signInWithPassword({email,password});
+  btn.disabled=false;btn.textContent='Log in';
+  if(error){errEl.textContent=error.message;return;}
+  showApp();
+}
+
+async function doLogout(){
+  if(!confirm('Log out?'))return;
+  await sb.auth.signOut();
+  location.reload();
+}
+
 async function init(){
   try{
-    // Step 1: check library loaded
-    if(typeof supabase==='undefined') throw new Error('Supabase JS library failed to load from CDN.');
-    if(typeof supabase.createClient!=='function') throw new Error('supabase.createClient not found. Keys: '+Object.keys(supabase).join(', '));
-
-    // Step 2: create client
-    sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-
-    // Step 3: direct fetch test
-    let testResp;
-    try{
-      testResp=await fetch(SUPABASE_URL+'/rest/v1/products?select=id&limit=1',{
-        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
-      });
-      if(!testResp.ok){const t=await testResp.text();throw new Error('Supabase HTTP '+testResp.status+': '+t);}
-    }catch(fe){throw new Error('Cannot reach Supabase: '+fe.message);}
-
-    // Step 4: load data via supabase-js
+    // Step 1: load data via supabase-js
     let {data:prods,error:pe}=await sb.from('products').select('*').order('product_name');
     if(pe)throw pe;
     if(!prods||!prods.length){
@@ -699,7 +725,7 @@ function closeOverlay(id){document.getElementById(id).classList.remove('open');}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function notify(msg){const n=document.getElementById('notif');n.textContent=msg;n.classList.add('show');setTimeout(()=>n.classList.remove('show'),2500);}
 
-init();
+boot();
 </script>
 </body>
 </html>
