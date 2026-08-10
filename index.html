@@ -653,7 +653,8 @@ function renderExtraPkgDocs(){
 async function handleExtraDocUpload(e){
   const file=e.target.files[0];if(!file)return;
   notify('Uploading...');
-  const path=`extra/${viewingJobId}_${Date.now()}_${file.name}`;
+  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+  const path=`extra/${viewingJobId}_${Date.now()}_${safeName}`;
   const {error}=await sb.storage.from('spec-sheets').upload(path,file,{upsert:true,contentType:'application/pdf'});
   if(error){alert('Error uploading document: '+error.message);return;}
   const {data:urlData}=sb.storage.from('spec-sheets').getPublicUrl(path);
