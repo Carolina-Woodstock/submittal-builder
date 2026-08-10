@@ -134,6 +134,16 @@ textarea{resize:vertical;min-height:64px}
     </div>
   </div>
 </div>
+<div class="overlay" id="overlay-extrapkg">
+  <div class="modal">
+    <div class="modal-title" id="extrapkg-modal-title">New submittal package</div>
+    <div class="form-row"><label>Package name *</label><input type="text" id="ep-pkg-name" placeholder="Rail Pro Submittals"></div>
+    <div class="section-label">Documents</div>
+    <div id="extrapkg-doclist"></div>
+    <div class="pdf-upload-area"><label style="cursor:pointer;display:block"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--muted)"></i><span style="font-size:13px;color:var(--muted)">Click to upload a document (PDF)</span><input type="file" accept="application/pdf" style="display:none" onchange="handleExtraDocUpload(event)"></label></div>
+    <div class="flex-end"><button class="btn" onclick="closeOverlay('overlay-extrapkg')">Cancel</button><button class="btn btn-primary" onclick="saveExtraPkg()">Save</button></div>
+  </div>
+</div>
 <div class="overlay" id="overlay-editjp">
   <div class="modal">
     <div class="modal-title">Edit for this project</div>
@@ -185,6 +195,7 @@ const SEED_TEMPLATES=[{"id": "t1", "name": "Steep slope roofing", "product_ids":
 let sb=null;
 let products=[],jobs=[],templates=[];
 let pickerSelected=new Set(),editingProductId=null,editingTemplateId=null,viewingJobId=null,editingJobProductIdx=null,editingJobId=null;
+let editingExtraPkgId=null,extraPkgDocs=[];
 let pendingPdfFile=null,duplicatedPdfMeta=null;
 
 async function boot(){
@@ -368,8 +379,27 @@ function openViewJob(id){
       html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
     });
   });
+  html+=renderExtraPackagesSection(j);
   document.getElementById('viewjob-content').innerHTML=html;
   openOverlay('overlay-viewjob');
+}
+
+function renderExtraPackagesSection(j){
+  const pkgs=j.extra_packages||[];
+  let html=`<div style="display:flex;align-items:center;justify-content:space-between;margin-top:24px">
+    <div class="cat-label" style="margin:0">Additional submittal packages</div>
+    <button class="btn btn-sm" onclick="openExtraPkg(null)"><i class="ti ti-plus"></i> Add package</button>
+  </div><p style="font-size:12px;color:var(--muted);margin:8px 0 12px">For job-specific documents (engineering letters, permits, etc.) that shouldn't live in the shared product library. Each package downloads as its own PDF with a matching cover page.</p>`;
+  if(!pkgs.length)html+='<div class="empty" style="padding:16px 0"><i class="ti ti-folder"></i>No additional packages.</div>';
+  else pkgs.forEach(p=>{
+    const docs=p.documents||[];
+    html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${esc(p.name)}</div><div class="jp-meta">${docs.length} document${docs.length===1?'':'s'}</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="generateExtraPackagePDF('${p.id}')" title="Download PDF"><i class="ti ti-download"></i></button>
+      <button class="btn btn-ghost btn-sm" onclick="openExtraPkg('${p.id}')" title="Edit"><i class="ti ti-pencil"></i></button>
+      <button class="btn btn-ghost btn-sm" onclick="deleteExtraPkg('${p.id}')" title="Delete"><i class="ti ti-trash"></i></button>
+    </div>`;
+  });
+  return html;
 }
 
 function openEditJobProduct(idx){
@@ -601,6 +631,143 @@ function wrapText(font,text,maxW,size){
   const words=(text||'').split(' ').filter(Boolean);const lines=[];let cur='';
   for(const w of words){const t=cur?cur+' '+w:w;if(font.widthOfTextAtSize(t,size)>maxW&&cur){lines.push(cur);cur=w;}else cur=t;}
   if(cur)lines.push(cur);return lines.length?lines:[''];
+}
+
+function openExtraPkg(pkgId){
+  const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
+  const pkgs=j.extra_packages||[];
+  const pkg=pkgId?pkgs.find(p=>p.id===pkgId):null;
+  editingExtraPkgId=pkgId;
+  extraPkgDocs=pkg?[...(pkg.documents||[])]:[];
+  document.getElementById('ep-pkg-name').value=pkg?pkg.name:'';
+  document.getElementById('extrapkg-modal-title').textContent=pkg?'Edit submittal package':'New submittal package';
+  renderExtraPkgDocs();
+  openOverlay('overlay-extrapkg');
+}
+
+function renderExtraPkgDocs(){
+  const el=document.getElementById('extrapkg-doclist');
+  el.innerHTML=extraPkgDocs.map((d,i)=>`<div class="pdf-attached" style="margin-bottom:8px"><i class="ti ti-file-type-pdf" style="font-size:20px;color:var(--accent)"></i><div style="flex:1"><div style="font-weight:500;font-size:13px">${esc(d.name)}</div></div><button class="btn btn-sm" onclick="removeExtraDoc(${i})">Remove</button></div>`).join('');
+}
+
+async function handleExtraDocUpload(e){
+  const file=e.target.files[0];if(!file)return;
+  notify('Uploading...');
+  const path=`extra/${viewingJobId}_${Date.now()}_${file.name}`;
+  const {error}=await sb.storage.from('spec-sheets').upload(path,file,{upsert:true,contentType:'application/pdf'});
+  if(error){alert('Error uploading document: '+error.message);return;}
+  const {data:urlData}=sb.storage.from('spec-sheets').getPublicUrl(path);
+  extraPkgDocs.push({name:file.name,url:urlData.publicUrl});
+  renderExtraPkgDocs();
+  notify('Document added');
+  e.target.value='';
+}
+
+function removeExtraDoc(idx){
+  extraPkgDocs.splice(idx,1);
+  renderExtraPkgDocs();
+}
+
+async function saveExtraPkg(){
+  const name=document.getElementById('ep-pkg-name').value.trim();
+  if(!name){alert('Please enter a package name.');return;}
+  const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
+  const pkgs=j.extra_packages?[...j.extra_packages]:[];
+  if(editingExtraPkgId){
+    const idx=pkgs.findIndex(p=>p.id===editingExtraPkgId);
+    if(idx>=0)pkgs[idx]={...pkgs[idx],name,documents:extraPkgDocs};
+  }else{
+    pkgs.push({id:'pkg'+Date.now(),name,documents:extraPkgDocs});
+  }
+  const {error}=await sb.from('jobs').update({extra_packages:pkgs}).eq('id',j.id);
+  if(error){alert('Error saving package: '+error.message);return;}
+  j.extra_packages=pkgs;
+  closeOverlay('overlay-extrapkg');
+  openViewJob(j.id);
+  notify('Package saved');
+}
+
+async function deleteExtraPkg(pkgId){
+  if(!confirm('Delete this submittal package? This cannot be undone.'))return;
+  const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
+  const pkgs=(j.extra_packages||[]).filter(p=>p.id!==pkgId);
+  const {error}=await sb.from('jobs').update({extra_packages:pkgs}).eq('id',j.id);
+  if(error){alert('Error deleting package: '+error.message);return;}
+  j.extra_packages=pkgs;
+  openViewJob(j.id);
+  notify('Package deleted');
+}
+
+async function generateExtraPackagePDF(pkgId){
+  const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
+  const pkg=(j.extra_packages||[]).find(p=>p.id===pkgId);
+  if(!pkg||!(pkg.documents||[]).length){alert('No documents in this package.');return;}
+  notify('Generating PDF...');
+  try{
+    const {PDFDocument,StandardFonts,rgb}=PDFLib;
+    const final=await PDFDocument.create();
+    const font=await final.embedFont(StandardFonts.Helvetica);
+    const fontB=await final.embedFont(StandardFonts.HelveticaBold);
+    let logoImg=null;
+    try{const lb=Uint8Array.from(atob(LOGO_B64.split(',')[1]),c=>c.charCodeAt(0));logoImg=await final.embedJpg(lb);}catch(e){}
+    const W=612,H=792,m=47;
+    const BLACK=rgb(0,0,0),LGRAY=rgb(0.55,0.55,0.55);
+
+    function drawHeader(page,titleText){
+      const logoW=65,logoH=65,topY=H-40;
+      if(logoImg){const d=logoImg.scaleToFit(logoW,logoH);page.drawImage(logoImg,{x:m,y:topY-d.height,width:d.width,height:d.height});}
+      const tSize=18,titleX=m+logoW+14,taW=W-titleX-m;
+      const tw=fontB.widthOfTextAtSize(titleText,tSize);
+      page.drawText(titleText,{x:titleX+(taW-tw)/2,y:topY-42,size:tSize,font:fontB,color:BLACK});
+      const lineY=topY-logoH-8;
+      page.drawLine({start:{x:m,y:lineY},end:{x:W-m,y:lineY},thickness:1.5,color:BLACK});
+      return lineY;
+    }
+    function drawCoverBlock(page,cx,startY,label,content,colW){
+      page.drawText(label+':',{x:cx,y:startY,size:10.5,font:fontB,color:BLACK});
+      if(!content||!content.trim()){page.drawText('(name and address)',{x:cx,y:startY-14,size:9,font,color:LGRAY});return startY-30;}
+      let ly=startY-14;
+      for(const line of content.split('\n')){if(!line.trim())continue;for(const wl of wrapText(font,line,colW-8,10)){page.drawText(wl,{x:cx,y:ly,size:10,font,color:BLACK});ly-=13;}}
+      return ly;
+    }
+
+    const cp=final.addPage([W,H]);
+    const clY=drawHeader(cp,pkg.name.toUpperCase());
+    const halfW=(W-2*m)/2;let cy=clY-22;
+    const lb1=drawCoverBlock(cp,m,cy,'PROJECT',(j.name||'')+'\n'+(j.project_address||''),halfW);
+    const rb1=drawCoverBlock(cp,m+halfW,cy,'CONTRACTOR',j.contractor||'',halfW);
+    cy=Math.min(lb1,rb1)-22;
+    const lb2=drawCoverBlock(cp,m,cy,'OWNER',j.owner||'',halfW);
+    const rb2=drawCoverBlock(cp,m+halfW,cy,'CONSULTANT',j.consultant||'',halfW);
+    cy=Math.min(lb2,rb2)-22;
+    cp.drawText('CONTRACT INFORMATION:',{x:m,y:cy,size:10.5,font:fontB,color:BLACK});
+    cp.drawText('Contract for:    '+(j.contract_for||'')+'          Date:    '+(j.date||'')+'          Project #:    '+(j.number||'N/A'),{x:m,y:cy-14,size:10,font,color:BLACK});
+    cy=cy-14-22;
+    cp.drawLine({start:{x:m,y:cy},end:{x:W-m,y:cy},thickness:1.5,color:BLACK});cy-=20;
+    for(const ln of wrapText(font,'Please review the attached documents and return with a stamped approval or request any changes necessary to obtain approval.',W-2*m,10)){
+      cp.drawText(ln,{x:m,y:cy,size:10,font,color:BLACK});cy-=14;
+    }
+
+    for(const doc of pkg.documents){
+      try{
+        const resp=await fetch(doc.url);
+        if(resp.ok){
+          const docBytes=await resp.arrayBuffer();
+          const docPdf=await PDFDocument.load(docBytes);
+          const copied=await final.copyPages(docPdf,docPdf.getPageIndices());
+          copied.forEach(pg=>final.addPage(pg));
+        }
+      }catch(e){console.warn('Could not embed document',doc.name,e);}
+    }
+
+    const bytes=await final.save();
+    const blob=new Blob([bytes],{type:'application/pdf'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=(j.name||'Project').replace(/\s+/g,'-')+'-'+pkg.name.replace(/\s+/g,'-')+'.pdf';
+    a.click();URL.revokeObjectURL(url);
+    notify('PDF downloaded!');
+  }catch(e){alert('Error generating PDF: '+e.message);console.error(e);}
 }
 
 async function generatePDF(){
