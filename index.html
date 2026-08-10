@@ -742,8 +742,10 @@ async function generateExtraPackagePDF(pkgId){
     const rb2=drawCoverBlock(cp,m+halfW,cy,'CONSULTANT',j.consultant||'',halfW);
     cy=Math.min(lb2,rb2)-22;
     cp.drawText('CONTRACT INFORMATION:',{x:m,y:cy,size:10.5,font:fontB,color:BLACK});
-    cp.drawText('Contract for:    '+(j.contract_for||'')+'          Date:    '+(j.date||'')+'          Project #:    '+(j.number||'N/A'),{x:m,y:cy-14,size:10,font,color:BLACK});
-    cy=cy-14-22;
+    let ciY=cy-14;
+    for(const ln of wrapText(font,'Contract for:    '+(j.contract_for||''),W-2*m,10)){cp.drawText(ln,{x:m,y:ciY,size:10,font,color:BLACK});ciY-=13;}
+    cp.drawText('Date:    '+(j.date||'')+'          Project #:    '+(j.number||'N/A'),{x:m,y:ciY,size:10,font,color:BLACK});
+    cy=ciY-22;
     cp.drawLine({start:{x:m,y:cy},end:{x:W-m,y:cy},thickness:1.5,color:BLACK});cy-=20;
     for(const ln of wrapText(font,'Please review the attached documents and return with a stamped approval or request any changes necessary to obtain approval.',W-2*m,10)){
       cp.drawText(ln,{x:m,y:cy,size:10,font,color:BLACK});cy-=14;
@@ -816,8 +818,10 @@ async function generatePDF(){
     const rb2=drawCoverBlock(cp,m+halfW,cy,'CONSULTANT',j.consultant||'',halfW);
     cy=Math.min(lb2,rb2)-22;
     cp.drawText('CONTRACT INFORMATION:',{x:m,y:cy,size:10.5,font:fontB,color:BLACK});
-    cp.drawText('Contract for:    '+(j.contract_for||'')+'          Date:    '+(j.date||'')+'          Project #:    '+(j.number||'N/A'),{x:m,y:cy-14,size:10,font,color:BLACK});
-    cy=cy-14-22;
+    let ciY=cy-14;
+    for(const ln of wrapText(font,'Contract for:    '+(j.contract_for||''),W-2*m,10)){cp.drawText(ln,{x:m,y:ciY,size:10,font,color:BLACK});ciY-=13;}
+    cp.drawText('Date:    '+(j.date||'')+'          Project #:    '+(j.number||'N/A'),{x:m,y:ciY,size:10,font,color:BLACK});
+    cy=ciY-22;
     cp.drawLine({start:{x:m,y:cy},end:{x:W-m,y:cy},thickness:1.5,color:BLACK});cy-=20;
     for(const ln of wrapText(font,'Please review the attached submittals and return with a stamped approval or request any changes necessary to obtain approval.',W-2*m,10)){
       cp.drawText(ln,{x:m,y:cy,size:10,font,color:BLACK});cy-=14;
