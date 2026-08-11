@@ -129,6 +129,7 @@ textarea{resize:vertical;min-height:64px}
     <div class="flex-end">
       <button class="btn btn-danger btn-sm" onclick="deleteCurrentJob()"><i class="ti ti-trash"></i> Delete</button>
       <button class="btn btn-sm" onclick="openEditJob()"><i class="ti ti-pencil"></i> Edit project</button>
+      <label class="btn btn-sm" style="margin:0;cursor:pointer" title="Upload a clouded/annotated version of the last downloaded package to save the markup on each spec sheet"><i class="ti ti-upload"></i> Upload clouded PDF<input type="file" accept="application/pdf" style="display:none" onchange="handleCloudedPdfUpload(event)"></label>
       <button class="btn btn-sm" onclick="closeOverlay('overlay-viewjob')">Close</button>
       <button class="btn btn-primary btn-sm" onclick="generatePDF()"><i class="ti ti-download"></i> Download PDF package</button>
     </div>
@@ -367,16 +368,26 @@ function openViewJob(id){
   const j=jobs.find(x=>x.id===id);if(!j)return;
   const prods=j.products||[];
   const bycat={};prods.forEach(p=>{const c=p.category||'Other';if(!bycat[c])bycat[c]=[];bycat[c].push(p);});
+  const overrides=j.clouded_overrides||{};
+  const activeOverrideCount=prods.filter(p=>{
+    const ov=overrides[p.id];if(!ov)return false;
+    const libProd=products.find(x=>x.id===p.id);
+    return libProd&&ov.source_pdf_url===libProd.pdf_url;
+  }).length;
   let html=`<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
     <div><div style="font-size:17px;font-weight:600">${j.name}</div>
     <div style="font-size:12px;color:var(--muted)">Project #${j.number||'N/A'} &middot; ${prods.length} products &middot; ${new Date(j.created).toLocaleDateString()}</div></div>
   </div><p style="font-size:12px;color:var(--muted);margin:8px 0 16px">Click edit on any product to adjust it for this project only.</p>`;
+  if(activeOverrideCount>0)html+=`<p style="font-size:12px;color:var(--accent);margin:-8px 0 16px"><i class="ti ti-cloud"></i> ${activeOverrideCount} product${activeOverrideCount===1?'':'s'} using a saved clouded/annotated spec sheet</p>`;
   if(!prods.length)html+='<div class="empty" style="padding:24px 0"><i class="ti ti-package"></i>No products selected.</div>';
   else Object.entries(bycat).forEach(([cat,ps])=>{
     html+=`<div class="cat-label">${cat}</div>`;
     ps.forEach(p=>{
       const gi=prods.indexOf(p);
-      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
+      const libProd=products.find(x=>x.id===p.id);
+      const ov=overrides[p.id];
+      const hasActiveOverride=ov&&libProd&&ov.source_pdf_url===libProd.pdf_url;
+      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${hasActiveOverride?'<i class="ti ti-cloud" style="color:var(--accent);font-size:13px" title="Using saved clouded spec sheet"></i> ':''}${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
     });
   });
   html+=renderExtraPackagesSection(j);
@@ -799,6 +810,70 @@ async function generatePDF(){
       return lineY;
     }
 
+    // ---- group products by category (matches library/list convention) ----
+    const bycat={};
+    j.products.forEach(p=>{const c=p.category||'Other';if(!bycat[c])bycat[c]=[];bycat[c].push(p);});
+    const catNames=Object.keys(bycat).sort((a,b)=>a.localeCompare(b));
+    const orderedProducts=[];
+    catNames.forEach(c=>bycat[c].forEach(p=>orderedProducts.push(p)));
+
+    // ---- Phase 1: resolve each product's attachment (clouded override if valid, else live library PDF), fetch once ----
+    const cloudedOverrides=j.clouded_overrides||{};
+    const attachInfo={};
+    for(const p of orderedProducts){
+      const libProd=products.find(x=>x.id===p.id);
+      const livePdfUrl=libProd?libProd.pdf_url:null;
+      const override=cloudedOverrides[p.id];
+      const useOverride=!!(override&&override.source_pdf_url&&livePdfUrl&&override.source_pdf_url===livePdfUrl);
+      const sourceUrl=useOverride?override.pdf_url:livePdfUrl;
+      const info={doc:null,pageCount:0,sourcePdfUrl:livePdfUrl,fromOverride:useOverride};
+      if(sourceUrl){
+        try{
+          const resp=await fetch(sourceUrl);
+          if(resp.ok){
+            const bytes2=await resp.arrayBuffer();
+            info.doc=await PDFDocument.load(bytes2);
+            info.pageCount=info.doc.getPageCount();
+          }
+        }catch(e){console.warn('Could not fetch attachment for',p.product_name,e);}
+      }
+      attachInfo[p.id]=info;
+    }
+
+    // ---- Build TOC entries (structure first; page numbers filled in after pagination is known) ----
+    const tocEntries=[];
+    catNames.forEach(c=>{
+      tocEntries.push({type:'header',text:c});
+      bycat[c].forEach(p=>tocEntries.push({type:'item',text:p.product_name||'(unnamed product)',productId:p.id}));
+    });
+    const HEADER_LH=20,ITEM_LH=15,TOC_CONTENT_TOP=H-40-65-8-14,TOC_BOTTOM=m+20;
+    function layoutTOCPages(entries){
+      const pages=[];let cur=[];let y=TOC_CONTENT_TOP;
+      for(const e of entries){
+        const lh=e.type==='header'?HEADER_LH:ITEM_LH;
+        if(y-lh<TOC_BOTTOM){pages.push(cur);cur=[];y=TOC_CONTENT_TOP;}
+        cur.push({...e,y});y-=lh;
+      }
+      if(cur.length)pages.push(cur);
+      return pages;
+    }
+    const tocPageCount=layoutTOCPages(tocEntries).length;
+
+    // ---- Phase 2: compute page numbers (cover=1, TOC=2..1+tocPageCount, then products) ----
+    let runningPage=2+tocPageCount;
+    const pageMapForSave={};
+    orderedProducts.forEach(p=>{
+      const info=attachInfo[p.id];
+      info.detailPageNum=runningPage;runningPage+=1;
+      if(info.pageCount>0){
+        const attachStart=runningPage,attachEnd=runningPage+info.pageCount-1;
+        runningPage=attachEnd+1;
+        pageMapForSave[p.id]={attachStart,attachEnd,sourcePdfUrl:info.sourcePdfUrl};
+      }
+    });
+    tocEntries.forEach(e=>{if(e.type==='item')e.page=attachInfo[e.productId].detailPageNum;});
+
+    // ---- Draw cover page ----
     const cp=final.addPage([W,H]);
     const clY=drawHeader(cp,'PROJECT SUBMITTALS');
     const halfW=(W-2*m)/2;let cy=clY-22;
@@ -827,7 +902,32 @@ async function generatePDF(){
       cp.drawText(ln,{x:m,y:cy,size:10,font,color:BLACK});cy-=14;
     }
 
-    for(const p of j.products){
+    // ---- Draw table of contents ----
+    const tocPages=layoutTOCPages(tocEntries);
+    tocPages.forEach(pageLines=>{
+      const page=final.addPage([W,H]);
+      drawHeader(page,'TABLE OF CONTENTS');
+      pageLines.forEach(line=>{
+        if(line.type==='header'){
+          page.drawText(line.text.toUpperCase(),{x:m,y:line.y,size:11,font:fontB,color:BLACK});
+        }else{
+          const pageNumText=String(line.page);
+          const pnW=font.widthOfTextAtSize(pageNumText,10);
+          const maxTextW=W-2*m-20-pnW-10;
+          let dispText=line.text;
+          while(font.widthOfTextAtSize(dispText,10)>maxTextW&&dispText.length>3){dispText=dispText.slice(0,-4)+'...';}
+          page.drawText(dispText,{x:m+10,y:line.y,size:10,font,color:BLACK});
+          const dotStartX=m+10+font.widthOfTextAtSize(dispText,10)+4;
+          const dotEndX=W-m-pnW-4;
+          let dx=dotStartX;
+          while(dx<dotEndX){page.drawText('.',{x:dx,y:line.y,size:10,font,color:LGRAY});dx+=4;}
+          page.drawText(pageNumText,{x:W-m-pnW,y:line.y,size:10,font,color:BLACK});
+        }
+      });
+    });
+
+    // ---- Draw each product's detail page + its attachment (clouded override reused if still valid) ----
+    for(const p of orderedProducts){
       const page=final.addPage([W,H]);
       const lY=drawHeader(page,'SUBMITTAL DETAIL');
       let y=lY-18;
@@ -868,17 +968,10 @@ async function generatePDF(){
       let dy=dStartY+(dLines.length-1)*11;
       for(const ln of dLines){page.drawText(ln,{x:m,y:dy,size:8.5,font:fontI,color:GRAY});dy-=11;}
 
-      const libProd=products.find(x=>x.id===p.id);
-      if(libProd&&libProd.pdf_url){
-        try{
-          const resp=await fetch(libProd.pdf_url);
-          if(resp.ok){
-            const specBytes=await resp.arrayBuffer();
-            const specDoc=await PDFDocument.load(specBytes);
-            const copied=await final.copyPages(specDoc,specDoc.getPageIndices());
-            copied.forEach(pg=>final.addPage(pg));
-          }
-        }catch(e){console.warn('Could not embed spec PDF for',p.product_name,e);}
+      const info=attachInfo[p.id];
+      if(info.doc){
+        const copied=await final.copyPages(info.doc,info.doc.getPageIndices());
+        copied.forEach(pg=>final.addPage(pg));
       }
     }
 
@@ -888,8 +981,56 @@ async function generatePDF(){
     const a=document.createElement('a');
     a.href=url;a.download=(j.name||'Project').replace(/\s+/g,'-')+'-Submittals.pdf';
     a.click();URL.revokeObjectURL(url);
+
+    const lastPageMap={generatedAt:Date.now(),totalPages:runningPage-1,map:pageMapForSave};
+    const {error:mapErr}=await sb.from('jobs').update({last_page_map:lastPageMap}).eq('id',j.id);
+    if(mapErr)console.warn('Could not save page map for clouded-PDF matching',mapErr);
+    else j.last_page_map=lastPageMap;
+
     notify('PDF downloaded!');
   }catch(e){alert('Error generating PDF: '+e.message);console.error(e);}
+}
+
+async function handleCloudedPdfUpload(e){
+  const file=e.target.files[0];if(!file)return;
+  const j=jobs.find(x=>x.id===viewingJobId);
+  if(!j){e.target.value='';return;}
+  if(!j.last_page_map){alert("Download the PDF package first (so the app knows how it's paginated), then upload the annotated version.");e.target.value='';return;}
+  notify('Processing annotated PDF...');
+  try{
+    const {PDFDocument}=PDFLib;
+    const bytes=await file.arrayBuffer();
+    const uploaded=await PDFDocument.load(bytes);
+    const actualPages=uploaded.getPageCount();
+    if(actualPages!==j.last_page_map.totalPages){
+      if(!confirm(`This PDF has ${actualPages} pages, but the last downloaded package had ${j.last_page_map.totalPages}. If pages were added or removed, product page ranges may not line up. Continue anyway?`)){e.target.value='';return;}
+    }
+    const map=j.last_page_map.map||{};
+    const overrides=j.clouded_overrides?{...j.clouded_overrides}:{};
+    let count=0;
+    for(const [productId,range] of Object.entries(map)){
+      const startIdx=range.attachStart-1,endIdx=range.attachEnd-1;
+      if(startIdx<0||endIdx>=actualPages||startIdx>endIdx)continue;
+      const indices=[];for(let i=startIdx;i<=endIdx;i++)indices.push(i);
+      const mini=await PDFDocument.create();
+      const copied=await mini.copyPages(uploaded,indices);
+      copied.forEach(pg=>mini.addPage(pg));
+      const miniBytes=await mini.save();
+      const path=`clouded/${j.id}_${productId}.pdf`;
+      const {error:ue}=await sb.storage.from('spec-sheets').upload(path,miniBytes,{upsert:true,contentType:'application/pdf'});
+      if(ue){console.warn('Clouded upload failed for',productId,ue);continue;}
+      const {data:urlData}=sb.storage.from('spec-sheets').getPublicUrl(path);
+      const prod=products.find(x=>x.id===productId);
+      overrides[productId]={pdf_url:urlData.publicUrl,pdf_name:(prod?prod.product_name:productId)+' - clouded.pdf',source_pdf_url:range.sourcePdfUrl,captured_at:Date.now()};
+      count++;
+    }
+    const {error:saveErr}=await sb.from('jobs').update({clouded_overrides:overrides}).eq('id',j.id);
+    if(saveErr){alert('Error saving clouded versions: '+saveErr.message);e.target.value='';return;}
+    j.clouded_overrides=overrides;
+    notify(`Saved clouded version for ${count} product${count===1?'':'s'}`);
+    openViewJob(j.id);
+  }catch(err){alert('Error processing PDF: '+err.message);console.error(err);}
+  e.target.value='';
 }
 
 function openOverlay(id){document.getElementById(id).classList.add('open');}
