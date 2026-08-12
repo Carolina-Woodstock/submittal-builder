@@ -157,7 +157,7 @@ textarea{resize:vertical;min-height:64px}
   <div class="modal modal-lg">
     <div class="modal-title" id="prod-modal-title">Add product</div>
     <div class="grid2 form-row"><div><label>Product name *</label><input type="text" id="ep-name"></div><div><label>Manufacturer</label><input type="text" id="ep-mfr"></div></div>
-    <div class="grid2 form-row"><div><label>Product #</label><input type="text" id="ep-num"></div><div><label>Category</label><select id="ep-cat"><option>Roofing - Flashing</option><option>Roofing - Shingles</option><option>Roofing - Low slope</option><option>Roofing - Ventilation</option><option>Roofing - Underlayment</option><option>Roofing - Misc</option><option>Siding</option><option>Trim</option><option>Gutters</option><option>Insulation</option><option>Mechanical</option><option>Other</option></select></div></div>
+    <div class="grid2 form-row"><div><label>Product #</label><input type="text" id="ep-num"></div><div><label>Category</label><input type="text" id="ep-cat" list="cat-datalist" placeholder="e.g. Decks, Balconies, Roofing - Flashing"><datalist id="cat-datalist"></datalist></div></div>
     <div class="form-row"><label>Purpose</label><input type="text" id="ep-purpose"></div>
     <div class="form-row"><label>Area(s) of use</label><textarea id="ep-areas" style="min-height:80px"></textarea></div>
     <div class="grid3 form-row"><div><label>Size</label><input type="text" id="ep-size"></div><div><label>Color</label><input type="text" id="ep-color"></div><div><label>Plan detail #</label><input type="text" id="ep-plan"></div></div>
@@ -475,7 +475,8 @@ async function openEditProduct(id){
   const p=id?products.find(x=>x.id===id):null;
   const map={name:'product_name',mfr:'manufacturer',num:'product_number',purpose:'purpose',areas:'areas_of_use',size:'size',color:'color',plan:'plan_detail',other:'other',warranty:'warranty',maint:'maintenance'};
   Object.entries(map).forEach(([f,k])=>{document.getElementById('ep-'+f).value=p?p[k]||'':'';});
-  if(p)document.getElementById('ep-cat').value=p.category||'Other';
+  document.getElementById('ep-cat').value=p?(p.category||''):'';
+  populateCategoryDatalist();
   renderPdfStatus(p);
   document.getElementById('remove-pdf-btn').style.display=(p&&p.pdf_url)?'inline-flex':'none';
   openOverlay('overlay-product');
@@ -488,11 +489,17 @@ function duplicateProduct(id){
   document.getElementById('prod-modal-title').textContent='Add product';
   const map={name:'product_name',mfr:'manufacturer',num:'product_number',purpose:'purpose',areas:'areas_of_use',size:'size',color:'color',plan:'plan_detail',other:'other',warranty:'warranty',maint:'maintenance'};
   Object.entries(map).forEach(([f,k])=>{document.getElementById('ep-'+f).value=k==='product_name'?(src[k]||'')+' (Copy)':(src[k]||'');});
-  document.getElementById('ep-cat').value=src.category||'Other';
+  document.getElementById('ep-cat').value=src.category||'';
+  populateCategoryDatalist();
   renderPdfStatus(duplicatedPdfMeta);
   document.getElementById('remove-pdf-btn').style.display=duplicatedPdfMeta?'inline-flex':'none';
   openOverlay('overlay-product');
   notify('Duplicated — adjust and save as a new product');
+}
+
+function populateCategoryDatalist(){
+  const cats=[...new Set(products.map(p=>p.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  document.getElementById('cat-datalist').innerHTML=cats.map(c=>`<option value="${esc(c)}">`).join('');
 }
 
 function renderPdfStatus(p){
@@ -529,7 +536,7 @@ async function saveProduct(){
   const name=document.getElementById('ep-name').value.trim();
   if(!name){alert('Product name is required.');return;}
   notify('Saving...');
-  const data={product_name:name,manufacturer:document.getElementById('ep-mfr').value,product_number:document.getElementById('ep-num').value,category:document.getElementById('ep-cat').value,purpose:document.getElementById('ep-purpose').value,areas_of_use:document.getElementById('ep-areas').value,size:document.getElementById('ep-size').value,color:document.getElementById('ep-color').value,plan_detail:document.getElementById('ep-plan').value,other:document.getElementById('ep-other').value,warranty:document.getElementById('ep-warranty').value,maintenance:document.getElementById('ep-maint').value};
+  const data={product_name:name,manufacturer:document.getElementById('ep-mfr').value,product_number:document.getElementById('ep-num').value,category:document.getElementById('ep-cat').value.trim()||'Other',purpose:document.getElementById('ep-purpose').value,areas_of_use:document.getElementById('ep-areas').value,size:document.getElementById('ep-size').value,color:document.getElementById('ep-color').value,plan_detail:document.getElementById('ep-plan').value,other:document.getElementById('ep-other').value,warranty:document.getElementById('ep-warranty').value,maintenance:document.getElementById('ep-maint').value};
   const productId=editingProductId||('p'+Date.now());
   if(!editingProductId&&!pendingPdfFile&&duplicatedPdfMeta){
     data.pdf_url=duplicatedPdfMeta.pdf_url;data.pdf_name=duplicatedPdfMeta.pdf_name;
