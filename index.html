@@ -377,8 +377,9 @@ function openViewJob(id){
   let html=`<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
     <div><div style="font-size:17px;font-weight:600">${j.name}</div>
     <div style="font-size:12px;color:var(--muted)">Project #${j.number||'N/A'} &middot; ${prods.length} products &middot; ${new Date(j.created).toLocaleDateString()}</div></div>
-  </div><p style="font-size:12px;color:var(--muted);margin:8px 0 16px">Click edit on any product to adjust it for this project only.</p>`;
+  </div><p style="font-size:12px;color:var(--muted);margin:8px 0 16px">Click edit on any product to adjust it for this project only, or refresh to pull in the latest library data.</p>`;
   if(activeOverrideCount>0)html+=`<p style="font-size:12px;color:var(--accent);margin:-8px 0 16px"><i class="ti ti-cloud"></i> ${activeOverrideCount} product${activeOverrideCount===1?'':'s'} using a saved clouded/annotated spec sheet</p>`;
+  if(prods.length)html+=`<div style="margin:-8px 0 16px"><button class="btn btn-ghost btn-sm" onclick="refreshAllProductsFromLibrary()"><i class="ti ti-refresh"></i> Refresh all from library</button></div>`;
   if(!prods.length)html+='<div class="empty" style="padding:24px 0"><i class="ti ti-package"></i>No products selected.</div>';
   else Object.entries(bycat).forEach(([cat,ps])=>{
     html+=`<div class="cat-label">${cat}</div>`;
@@ -387,7 +388,7 @@ function openViewJob(id){
       const libProd=products.find(x=>x.id===p.id);
       const ov=overrides[p.id];
       const hasActiveOverride=ov&&libProd&&ov.source_pdf_url===libProd.pdf_url;
-      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${hasActiveOverride?'<i class="ti ti-cloud" style="color:var(--accent);font-size:13px" title="Using saved clouded spec sheet"></i> ':''}${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
+      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${hasActiveOverride?'<i class="ti ti-cloud" style="color:var(--accent);font-size:13px" title="Using saved clouded spec sheet"></i> ':''}${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="refreshProductFromLibrary(${gi})" title="Refresh this product with current library data"><i class="ti ti-refresh"></i></button><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
     });
   });
   html+=renderExtraPackagesSection(j);
@@ -443,6 +444,29 @@ async function saveJobProduct(){
   const {error}=await sb.from('jobs').update({products:j.products}).eq('id',j.id);
   if(error){alert('Error saving: '+error.message);return;}
   closeOverlay('overlay-editjp');openViewJob(viewingJobId);notify('Product updated for this project');
+}
+
+async function refreshProductFromLibrary(idx){
+  const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
+  const p=(j.products||[])[idx];if(!p)return;
+  const libProd=products.find(x=>x.id===p.id);
+  if(!libProd){alert('This product no longer exists in the library.');return;}
+  if(!confirm(`Refresh "${p.product_name}" with the current library data? This overwrites any project-specific edits made to this product.`))return;
+  j.products[idx]={...libProd};
+  const {error}=await sb.from('jobs').update({products:j.products}).eq('id',j.id);
+  if(error){alert('Error saving: '+error.message);return;}
+  notify('Refreshed from library');
+  openViewJob(j.id);
+}
+
+async function refreshAllProductsFromLibrary(){
+  const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
+  if(!confirm('Refresh ALL products in this project with current library data? This overwrites any project-specific edits made to any product.'))return;
+  j.products=(j.products||[]).map(p=>{const libProd=products.find(x=>x.id===p.id);return libProd?{...libProd}:p;});
+  const {error}=await sb.from('jobs').update({products:j.products}).eq('id',j.id);
+  if(error){alert('Error saving: '+error.message);return;}
+  notify('All products refreshed from library');
+  openViewJob(j.id);
 }
 
 async function deleteCurrentJob(){
