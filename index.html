@@ -1022,24 +1022,37 @@ async function generatePDF(){
   }catch(e){alert('Error generating PDF: '+e.message);console.error(e);}
 }
 
+function progressNotify(msg){
+  const n=document.getElementById('notif');
+  n.textContent=msg;n.classList.add('show');
+}
+function progressNotifyDone(msg){
+  const n=document.getElementById('notif');
+  n.textContent=msg;n.classList.add('show');
+  setTimeout(()=>n.classList.remove('show'),2500);
+}
+
 async function handleCloudedPdfUpload(e){
   const file=e.target.files[0];if(!file)return;
   const j=jobs.find(x=>x.id===viewingJobId);
   if(!j){e.target.value='';return;}
   if(!j.last_page_map){alert("Download the PDF package first (so the app knows how it's paginated), then upload the annotated version.");e.target.value='';return;}
-  notify('Processing annotated PDF...');
+  progressNotify('Reading annotated PDF... this can take a minute for large packages');
   try{
     const {PDFDocument}=PDFLib;
     const bytes=await file.arrayBuffer();
     const uploaded=await PDFDocument.load(bytes);
     const actualPages=uploaded.getPageCount();
     if(actualPages!==j.last_page_map.totalPages){
-      if(!confirm(`This PDF has ${actualPages} pages, but the last downloaded package had ${j.last_page_map.totalPages}. If pages were added or removed, product page ranges may not line up. Continue anyway?`)){e.target.value='';return;}
+      if(!confirm(`This PDF has ${actualPages} pages, but the last downloaded package had ${j.last_page_map.totalPages}. If pages were added or removed, product page ranges may not line up. Continue anyway?`)){progressNotifyDone('Cancelled');e.target.value='';return;}
     }
     const map=j.last_page_map.map||{};
+    const entries=Object.entries(map);
     const overrides=j.clouded_overrides?{...j.clouded_overrides}:{};
-    let count=0;
-    for(const [productId,range] of Object.entries(map)){
+    let count=0,done=0;
+    for(const [productId,range] of entries){
+      done++;
+      progressNotify(`Saving clouded spec sheets... ${done} of ${entries.length}`);
       const startIdx=range.attachStart-1,endIdx=range.attachEnd-1;
       if(startIdx<0||endIdx>=actualPages||startIdx>endIdx)continue;
       const indices=[];for(let i=startIdx;i<=endIdx;i++)indices.push(i);
@@ -1054,13 +1067,18 @@ async function handleCloudedPdfUpload(e){
       const prod=products.find(x=>x.id===productId);
       overrides[productId]={pdf_url:urlData.publicUrl,pdf_name:(prod?prod.product_name:productId)+' - clouded.pdf',source_pdf_url:range.sourcePdfUrl,captured_at:Date.now()};
       count++;
+      if(count%5===0){
+        const {error:saveErr}=await sb.from('jobs').update({clouded_overrides:overrides}).eq('id',j.id);
+        if(saveErr)console.warn('Incremental save failed',saveErr);
+        else j.clouded_overrides=overrides;
+      }
     }
     const {error:saveErr}=await sb.from('jobs').update({clouded_overrides:overrides}).eq('id',j.id);
     if(saveErr){alert('Error saving clouded versions: '+saveErr.message);e.target.value='';return;}
     j.clouded_overrides=overrides;
-    notify(`Saved clouded version for ${count} product${count===1?'':'s'}`);
+    progressNotifyDone(`Saved clouded version for ${count} product${count===1?'':'s'}`);
     openViewJob(j.id);
-  }catch(err){alert('Error processing PDF: '+err.message);console.error(err);}
+  }catch(err){progressNotifyDone('Error processing PDF');alert('Error processing PDF: '+err.message);console.error(err);}
   e.target.value='';
 }
 
