@@ -388,7 +388,7 @@ function openViewJob(id){
       const libProd=products.find(x=>x.id===p.id);
       const ov=overrides[p.id];
       const hasActiveOverride=ov&&libProd&&ov.source_pdf_url===libProd.pdf_url;
-      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${hasActiveOverride?'<i class="ti ti-cloud" style="color:var(--accent);font-size:13px" title="Using saved clouded spec sheet"></i> ':''}${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="refreshProductFromLibrary(${gi})" title="Refresh this product with current library data"><i class="ti ti-refresh"></i></button><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
+      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${hasActiveOverride?'<i class="ti ti-cloud" style="color:var(--accent);font-size:13px" title="Using saved clouded spec sheet"></i> ':''}${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="generateSingleProductPDF(${gi})" title="Download just this product as its own PDF"><i class="ti ti-file-download"></i></button><button class="btn btn-ghost btn-sm" onclick="refreshProductFromLibrary(${gi})" title="Refresh this product with current library data"><i class="ti ti-refresh"></i></button><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
     });
   });
   html+=renderExtraPackagesSection(j);
@@ -1018,6 +1018,103 @@ async function generatePDF(){
     if(mapErr)console.warn('Could not save page map for clouded-PDF matching',mapErr);
     else j.last_page_map=lastPageMap;
 
+    notify('PDF downloaded!');
+  }catch(e){alert('Error generating PDF: '+e.message);console.error(e);}
+}
+
+async function generateSingleProductPDF(idx){
+  const j=jobs.find(x=>x.id===viewingJobId);
+  if(!j)return;
+  const p=(j.products||[])[idx];
+  if(!p){alert('Product not found.');return;}
+  notify('Generating PDF...');
+  try{
+    const {PDFDocument,StandardFonts,rgb}=PDFLib;
+    const final=await PDFDocument.create();
+    const font=await final.embedFont(StandardFonts.Helvetica);
+    const fontB=await final.embedFont(StandardFonts.HelveticaBold);
+    const fontI=await final.embedFont(StandardFonts.HelveticaOblique);
+    let logoImg=null;
+    try{const lb=Uint8Array.from(atob(LOGO_B64.split(',')[1]),c=>c.charCodeAt(0));logoImg=await final.embedJpg(lb);}catch(e){}
+    const W=612,H=792,m=47;
+    const BLACK=rgb(0,0,0),GRAY=rgb(0.33,0.33,0.33);
+
+    function drawHeader(page,titleText){
+      const logoW=65,logoH=65,topY=H-40;
+      if(logoImg){const d=logoImg.scaleToFit(logoW,logoH);page.drawImage(logoImg,{x:m,y:topY-d.height,width:d.width,height:d.height});}
+      const tSize=18,titleX=m+logoW+14,taW=W-titleX-m;
+      const tw=fontB.widthOfTextAtSize(titleText,tSize);
+      page.drawText(titleText,{x:titleX+(taW-tw)/2,y:topY-42,size:tSize,font:fontB,color:BLACK});
+      const lineY=topY-logoH-8;
+      page.drawLine({start:{x:m,y:lineY},end:{x:W-m,y:lineY},thickness:1.5,color:BLACK});
+      return lineY;
+    }
+
+    // resolve attachment: clouded override if still valid, else current library PDF
+    const libProd=products.find(x=>x.id===p.id);
+    const livePdfUrl=libProd?libProd.pdf_url:null;
+    const override=(j.clouded_overrides||{})[p.id];
+    const useOverride=!!(override&&override.source_pdf_url&&livePdfUrl&&override.source_pdf_url===livePdfUrl);
+    const sourceUrl=useOverride?override.pdf_url:livePdfUrl;
+    let attachDoc=null;
+    if(sourceUrl){
+      try{
+        const resp=await fetch(sourceUrl);
+        if(resp.ok){const b=await resp.arrayBuffer();attachDoc=await PDFDocument.load(b);}
+      }catch(e){console.warn('Could not fetch attachment for',p.product_name,e);}
+    }
+
+    const page=final.addPage([W,H]);
+    const lY=drawHeader(page,'SUBMITTAL DETAIL');
+    let y=lY-18;
+    page.drawText('Project Name:',{x:m,y,size:10.5,font:fontB,color:BLACK});
+    page.drawText(j.name||'',{x:m+76,y,size:10.5,font,color:BLACK});
+    page.drawText('Project #:',{x:W/2,y,size:10.5,font:fontB,color:BLACK});
+    page.drawText(j.number||'N/A',{x:W/2+54,y,size:10.5,font,color:BLACK});
+    page.drawLine({start:{x:m,y:y-13},end:{x:W-m,y:y-13},thickness:1,color:BLACK});
+    y=y-13-24;
+    const lX=m+14,vX=m+90,vW=W-(m+90)-m-6;
+    const sS=11.5,fS=10,lH=13,sG=13,fG=7,sB=13;
+
+    function sec(text){
+      const tw2=fontB.widthOfTextAtSize(text,sS);
+      page.drawText(text,{x:lX,y,size:sS,font:fontB,color:BLACK});
+      page.drawLine({start:{x:lX,y:y-2},end:{x:lX+tw2,y:y-2},thickness:0.7,color:BLACK});
+      y-=sG;
+    }
+    function fld(label,value){
+      page.drawText(label,{x:lX,y,size:fS,font:fontB,color:BLACK});
+      const lines=wrapText(font,value,vW,fS);let fy=y;
+      for(const ln of lines){page.drawText(ln,{x:vX,y:fy,size:fS,font,color:BLACK});fy-=lH;}
+      y=Math.min(fy,y)-fG;
+    }
+
+    sec('Basic information:');
+    fld('Manufacturer:',p.manufacturer||'');fld('Product name:',p.product_name||'');
+    fld('Product #:',p.product_number||'');fld('Plan detail #:',p.plan_detail||'');
+    fld('Purpose:',p.purpose||'');fld('Area(s) of use:',p.areas_of_use||'');
+    y-=sB;sec('Selections:');
+    fld('Size:',p.size||'');fld('Color:',p.color||'');fld('Other:',p.other||'');
+    y-=sB;sec("Owner's information:");
+    fld('Warranty:',p.warranty||'');fld('Maintenance:',p.maintenance||'');fld('Other:','');
+
+    const dLines=wrapText(fontI,DISC,W-2*m,8.5);
+    const dStartY=m+dLines.length*11+4;
+    page.drawLine({start:{x:m,y:dStartY+13},end:{x:W-m,y:dStartY+13},thickness:0.4,color:rgb(0.75,0.75,0.75)});
+    let dy=dStartY+(dLines.length-1)*11;
+    for(const ln of dLines){page.drawText(ln,{x:m,y:dy,size:8.5,font:fontI,color:GRAY});dy-=11;}
+
+    if(attachDoc){
+      const copied=await final.copyPages(attachDoc,attachDoc.getPageIndices());
+      copied.forEach(pg=>final.addPage(pg));
+    }
+
+    const bytes=await final.save();
+    const blob=new Blob([bytes],{type:'application/pdf'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=(j.name||'Project').replace(/\s+/g,'-')+'-'+(p.product_name||'Product').replace(/\s+/g,'-')+'.pdf';
+    a.click();URL.revokeObjectURL(url);
     notify('PDF downloaded!');
   }catch(e){alert('Error generating PDF: '+e.message);console.error(e);}
 }
