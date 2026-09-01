@@ -841,6 +841,12 @@ async function generatePDF(){
       return lineY;
     }
 
+    function drawPageNum(page,num,total){
+      const text='Page '+num+' of '+total;
+      const tw=font.widthOfTextAtSize(text,8.5);
+      page.drawText(text,{x:(W-tw)/2,y:24,size:8.5,font,color:GRAY});
+    }
+
     // ---- group products by category (matches library/list convention) ----
     const bycat={};
     j.products.forEach(p=>{const c=p.category||'Other';if(!bycat[c])bycat[c]=[];bycat[c].push(p);});
@@ -903,9 +909,11 @@ async function generatePDF(){
       }
     });
     tocEntries.forEach(e=>{if(e.type==='item')e.page=attachInfo[e.productId].detailPageNum;});
+    const totalPages=runningPage-1;
 
     // ---- Draw cover page ----
     const cp=final.addPage([W,H]);
+    drawPageNum(cp,1,totalPages);
     const clY=drawHeader(cp,'PROJECT SUBMITTALS');
     const halfW=(W-2*m)/2;let cy=clY-22;
 
@@ -935,8 +943,9 @@ async function generatePDF(){
 
     // ---- Draw table of contents ----
     const tocPages=layoutTOCPages(tocEntries);
-    tocPages.forEach(pageLines=>{
+    tocPages.forEach((pageLines,tocIdx)=>{
       const page=final.addPage([W,H]);
+      drawPageNum(page,2+tocIdx,totalPages);
       drawHeader(page,'TABLE OF CONTENTS');
       pageLines.forEach(line=>{
         if(line.type==='header'){
@@ -960,6 +969,7 @@ async function generatePDF(){
     // ---- Draw each product's detail page + its attachment (clouded override reused if still valid) ----
     for(const p of orderedProducts){
       const page=final.addPage([W,H]);
+      drawPageNum(page,attachInfo[p.id].detailPageNum,totalPages);
       const lY=drawHeader(page,'SUBMITTAL DETAIL');
       let y=lY-18;
       page.drawText('Project Name:',{x:m,y,size:10.5,font:fontB,color:BLACK});
