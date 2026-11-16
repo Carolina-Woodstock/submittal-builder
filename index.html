@@ -131,6 +131,8 @@ textarea{resize:vertical;min-height:64px}
       <button class="btn btn-sm" onclick="openEditJob()"><i class="ti ti-pencil"></i> Edit project</button>
       <label class="btn btn-sm" style="margin:0;cursor:pointer" title="Upload a clouded/annotated version of the last downloaded package to save the markup on each spec sheet"><i class="ti ti-upload"></i> Upload clouded PDF<input type="file" accept="application/pdf" style="display:none" onchange="handleCloudedPdfUpload(event)"></label>
       <button class="btn btn-sm" onclick="closeOverlay('overlay-viewjob')">Close</button>
+      <button class="btn btn-sm" id="btn-rv-full" style="display:none" onclick="generatePDF('full')" title="Every product, with the table of contents color-coded by the consultant's review and a response log"><i class="ti ti-download"></i> Full set (Rev)</button>
+      <button class="btn btn-sm" id="btn-rv-changes" style="display:none" onclick="generatePDF('changes')" title="Only the products that need action, plus the response log"><i class="ti ti-download"></i> Resubmittal (changes only)</button>
       <button class="btn btn-primary btn-sm" onclick="generatePDF()"><i class="ti ti-download"></i> Download PDF package</button>
     </div>
   </div>
@@ -379,6 +381,8 @@ function openViewJob(id){
     <div style="font-size:12px;color:var(--muted)">Project #${j.number||'N/A'} &middot; ${prods.length} products &middot; ${new Date(j.created).toLocaleDateString()}</div></div>
   </div><p style="font-size:12px;color:var(--muted);margin:8px 0 16px">Click edit on any product to adjust it for this project only, or refresh to pull in the latest library data.</p>`;
   if(activeOverrideCount>0)html+=`<p style="font-size:12px;color:var(--accent);margin:-8px 0 16px"><i class="ti ti-cloud"></i> ${activeOverrideCount} product${activeOverrideCount===1?'':'s'} using a saved clouded/annotated spec sheet</p>`;
+  const rvCounts={};prods.forEach(p=>{if(p.rv_status)rvCounts[p.rv_status]=(rvCounts[p.rv_status]||0)+1;});
+  if(Object.keys(rvCounts).length)html+=`<p style="font-size:12px;margin:-8px 0 16px">Consultant review (Rev ${jobRvRound(j)}): ${Object.entries(RV_STATUS).filter(([k])=>rvCounts[k]).map(([k,v])=>`<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${v.hex};margin:0 4px 0 8px"></span>${rvCounts[k]} ${v.label.toLowerCase()}`).join('')}</p>`;
   if(prods.length)html+=`<div style="margin:-8px 0 16px"><button class="btn btn-ghost btn-sm" onclick="refreshAllProductsFromLibrary()"><i class="ti ti-refresh"></i> Refresh all from library</button></div>`;
   if(!prods.length)html+='<div class="empty" style="padding:24px 0"><i class="ti ti-package"></i>No products selected.</div>';
   else Object.entries(bycat).forEach(([cat,ps])=>{
@@ -388,11 +392,13 @@ function openViewJob(id){
       const libProd=products.find(x=>x.id===p.id);
       const ov=overrides[p.id];
       const hasActiveOverride=ov&&libProd&&ov.source_pdf_url===libProd.pdf_url;
-      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${hasActiveOverride?'<i class="ti ti-cloud" style="color:var(--accent);font-size:13px" title="Using saved clouded spec sheet"></i> ':''}${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="generateSingleProductPDF(${gi})" title="Download just this product as its own PDF"><i class="ti ti-file-download"></i></button><button class="btn btn-ghost btn-sm" onclick="refreshProductFromLibrary(${gi})" title="Refresh this product with current library data"><i class="ti ti-refresh"></i></button><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
+      html+=`<div class="job-product-row"><div style="flex:1"><div class="jp-name">${hasActiveOverride?'<i class="ti ti-cloud" style="color:var(--accent);font-size:13px" title="Using saved clouded spec sheet"></i> ':''}${p.rv_status&&RV_STATUS[p.rv_status]?`<span title="${RV_STATUS[p.rv_status].label}" style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${RV_STATUS[p.rv_status].hex};margin-right:6px"></span>`:''}${p.product_name}</div><div class="jp-meta">${p.manufacturer||'—'}${p.color?' · '+p.color:''}${p.size?' · '+p.size:''}</div></div><button class="btn btn-ghost btn-sm" onclick="generateSingleProductPDF(${gi})" title="Download just this product as its own PDF"><i class="ti ti-file-download"></i></button><button class="btn btn-ghost btn-sm" onclick="refreshProductFromLibrary(${gi})" title="Refresh this product with current library data"><i class="ti ti-refresh"></i></button><button class="btn btn-ghost btn-sm" onclick="openEditJobProduct(${gi})"><i class="ti ti-pencil"></i> Edit</button></div>`;
     });
   });
   html+=renderExtraPackagesSection(j);
   document.getElementById('viewjob-content').innerHTML=html;
+  const hasRv=prods.some(p=>p.rv_status);
+  ['btn-rv-full','btn-rv-changes'].forEach(id=>{const b=document.getElementById(id);if(b)b.style.display=hasRv?'':'none';});
   openOverlay('overlay-viewjob');
 }
 
@@ -425,7 +431,13 @@ function openEditJobProduct(idx){
     <div class="form-row"><label>Area(s) of use</label><textarea id="ejp-areas" style="min-height:72px">${esc(p.areas_of_use)}</textarea></div>
     <div class="form-row"><label>Other / specs</label><textarea id="ejp-other">${esc(p.other)}</textarea></div>
     <div class="form-row"><label>Warranty</label><input type="text" id="ejp-warranty" value="${esc(p.warranty)}"></div>
-    <div class="form-row"><label>Maintenance</label><textarea id="ejp-maint" style="min-height:72px">${esc(p.maintenance)}</textarea></div>`;
+    <div class="form-row"><label>Maintenance</label><textarea id="ejp-maint" style="min-height:72px">${esc(p.maintenance)}</textarea></div>
+    <div class="section-label" style="margin-top:18px">Consultant review</div>
+    <div class="grid2 form-row"><div><label>Review status</label><select id="ejp-rvstatus" onchange="document.getElementById('ejp-rvinclude').checked=rvDefaultInclude(this.value)"><option value="">Not reviewed yet</option>${Object.entries(RV_STATUS).map(([k,v])=>`<option value="${k}"${p.rv_status===k?' selected':''}>${v.label}</option>`).join('')}</select></div><div><label>Review date</label><input type="date" id="ejp-rvdate" value="${esc(p.rv_date||'')}"></div></div>
+    <div class="form-row"><label>Consultant's own wording for this status (optional)</label><input type="text" id="ejp-rvlabel" placeholder="e.g. Furnish as Noted, Make Corrections Noted" value="${esc(p.rv_label)}"></div>
+    <div class="form-row"><label>Consultant's comment</label><textarea id="ejp-rvcomment" style="min-height:60px">${esc(p.rv_comment)}</textarea></div>
+    <div class="form-row"><label>Our response</label><textarea id="ejp-rvresponse" style="min-height:60px">${esc(p.rv_response)}</textarea></div>
+    <div class="form-row"><label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="ejp-rvinclude" ${rvIncluded(p)?'checked':''}> Include this product in the changes-only resubmittal</label></div>`;
   openOverlay('overlay-editjp');
 }
 
@@ -441,6 +453,13 @@ async function saveJobProduct(){
   p.other=document.getElementById('ejp-other').value;
   p.warranty=document.getElementById('ejp-warranty').value;
   p.maintenance=document.getElementById('ejp-maint').value;
+  const rvs=document.getElementById('ejp-rvstatus').value;
+  if(rvs){
+    p.rv_status=rvs;p.rv_label=document.getElementById('ejp-rvlabel').value.trim();if(!p.rv_label)delete p.rv_label;p.rv_date=document.getElementById('ejp-rvdate').value||'';
+    p.rv_comment=document.getElementById('ejp-rvcomment').value;p.rv_response=document.getElementById('ejp-rvresponse').value;
+    p.rv_include=document.getElementById('ejp-rvinclude').checked;
+    if(!p.rv_round)p.rv_round=Math.max(1,jobRvRound(j));
+  }else{['rv_status','rv_label','rv_date','rv_comment','rv_response','rv_include','rv_round'].forEach(k=>delete p[k]);}
   const {error}=await sb.from('jobs').update({products:j.products}).eq('id',j.id);
   if(error){alert('Error saving: '+error.message);return;}
   closeOverlay('overlay-editjp');openViewJob(viewingJobId);notify('Product updated for this project');
@@ -452,7 +471,7 @@ async function refreshProductFromLibrary(idx){
   const libProd=products.find(x=>x.id===p.id);
   if(!libProd){alert('This product no longer exists in the library.');return;}
   if(!confirm(`Refresh "${p.product_name}" with the current library data? This overwrites any project-specific edits made to this product.`))return;
-  j.products[idx]={...libProd};
+  j.products[idx]=rvKeep(p,libProd);
   const {error}=await sb.from('jobs').update({products:j.products}).eq('id',j.id);
   if(error){alert('Error saving: '+error.message);return;}
   notify('Refreshed from library');
@@ -462,7 +481,7 @@ async function refreshProductFromLibrary(idx){
 async function refreshAllProductsFromLibrary(){
   const j=jobs.find(x=>x.id===viewingJobId);if(!j)return;
   if(!confirm('Refresh ALL products in this project with current library data? This overwrites any project-specific edits made to any product.'))return;
-  j.products=(j.products||[]).map(p=>{const libProd=products.find(x=>x.id===p.id);return libProd?{...libProd}:p;});
+  j.products=(j.products||[]).map(p=>{const libProd=products.find(x=>x.id===p.id);return libProd?rvKeep(p,libProd):p;});
   const {error}=await sb.from('jobs').update({products:j.products}).eq('id',j.id);
   if(error){alert('Error saving: '+error.message);return;}
   notify('All products refreshed from library');
@@ -815,7 +834,28 @@ async function generateExtraPackagePDF(pkgId){
   }catch(e){alert('Error generating PDF: '+e.message);console.error(e);}
 }
 
-async function generatePDF(){
+// ---- Certa review / resubmittal support (data lives on each job product: rv_status, rv_comment, rv_response, rv_include, rv_round, rv_date) ----
+const RV_STATUS={
+  approved:{label:'Approved',color:[0.16,0.52,0.26],hex:'#2a8542'},
+  furnish:{label:'Furnish as noted',color:[0.85,0.58,0.05],hex:'#d99400'},
+  revise:{label:'Revise & resubmit',color:[0.80,0.15,0.15],hex:'#cc2626'},
+  rejected:{label:'Rejected',color:[0.35,0.35,0.35],hex:'#595959'},
+  new:{label:'New',color:[0.15,0.40,0.80],hex:'#2666cc'}
+};
+function rvLabel(p){return (p&&p.rv_label)||(p&&RV_STATUS[p.rv_status]?RV_STATUS[p.rv_status].label:'');}
+function rvConsultant(j){const n=((j&&j.consultant)||'').split('\n').map(x=>x.trim()).filter(Boolean)[0];return n||'Consultant';}
+function rvLegendLabel(j,key){const c={};(j.products||[]).forEach(p=>{if(p.rv_status===key&&p.rv_label)c[p.rv_label]=(c[p.rv_label]||0)+1;});const best=Object.entries(c).sort((a,b)=>b[1]-a[1])[0];return best?best[0]:RV_STATUS[key].label;}
+function rvDefaultInclude(status){return status==='furnish'||status==='revise'||status==='new';}
+function rvIncluded(p){return typeof p.rv_include==='boolean'?p.rv_include:rvDefaultInclude(p.rv_status);}
+function jobRvRound(j){return Math.max(0,...(j.products||[]).map(p=>+p.rv_round||0));}
+function jobRvDate(j){const ds=(j.products||[]).map(p=>p.rv_date).filter(Boolean).sort();return ds.length?ds[ds.length-1]:'';}
+function rvDateText(d){if(!d)return '';const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d);return m?(m[2]+'/'+m[3]+'/'+m[1]):d;}
+function rvKeep(oldP,newP){const o={...newP};['rv_status','rv_label','rv_comment','rv_response','rv_include','rv_round','rv_date'].forEach(k=>{if(oldP&&oldP[k]!==undefined)o[k]=oldP[k];});return o;}
+
+// mode: 'normal' (default, unchanged), 'full' (every product, colored TOC + response log), 'changes' (only products needing action)
+async function generatePDF(mode){
+  mode=(mode==='full'||mode==='changes')?mode:'normal';
+  const revMode=mode!=='normal';
   const j=jobs.find(x=>x.id===viewingJobId);
   if(!j||(j.products||[]).length===0){alert('No products in this project.');return;}
   notify('Generating PDF...');
@@ -851,8 +891,11 @@ async function generatePDF(){
     const bycat={};
     j.products.forEach(p=>{const c=p.category||'Other';if(!bycat[c])bycat[c]=[];bycat[c].push(p);});
     const catNames=Object.keys(bycat).sort((a,b)=>a.localeCompare(b));
-    const orderedProducts=[];
-    catNames.forEach(c=>bycat[c].forEach(p=>orderedProducts.push(p)));
+    const allOrdered=[];
+    catNames.forEach(c=>bycat[c].forEach(p=>allOrdered.push(p)));
+    const orderedProducts=mode==='changes'?allOrdered.filter(rvIncluded):allOrdered;
+    if(!orderedProducts.length){alert('No products are marked to be included in the resubmittal. Set a consultant review status on the products first.');return;}
+    const revNum=jobRvRound(j),revDate=rvDateText(jobRvDate(j));
 
     // ---- Phase 1: resolve each product's attachment (clouded override if valid, else live library PDF), fetch once ----
     const cloudedOverrides=j.clouded_overrides||{};
@@ -881,7 +924,7 @@ async function generatePDF(){
     const tocEntries=[];
     catNames.forEach(c=>{
       tocEntries.push({type:'header',text:c});
-      bycat[c].forEach(p=>tocEntries.push({type:'item',text:p.product_name||'(unnamed product)',productId:p.id}));
+      bycat[c].forEach(p=>tocEntries.push({type:'item',text:p.product_name||'(unnamed product)',productId:p.id,prod:p}));
     });
     const HEADER_LH=20,ITEM_LH=15,TOC_CONTENT_TOP=H-40-65-8-14,TOC_BOTTOM=m+20;
     function layoutTOCPages(entries){
@@ -896,8 +939,30 @@ async function generatePDF(){
     }
     const tocPageCount=layoutTOCPages(tocEntries).length;
 
-    // ---- Phase 2: compute page numbers (cover=1, TOC=2..1+tocPageCount, then products) ----
-    let runningPage=2+tocPageCount;
+    // ---- Response log (resubmittal modes): one row per product with a review comment or non-approved status ----
+    const LOG_X=[m,m+120,m+292,m+452],LOG_W=[114,166,154,66];
+    const logRows=revMode?allOrdered.filter(p=>p.rv_status&&(p.rv_status!=='approved'||p.rv_response)).map(p=>({
+      prod:p,
+      c0:wrapText(fontB,p.product_name||'(unnamed)',LOG_W[0],8.5),
+      c1:[rvLabel(p)].concat(p.rv_comment?wrapText(font,p.rv_comment,LOG_W[1],8.5):[]),
+      c2:wrapText(font,p.rv_response||'',LOG_W[2],8.5)
+    })):[];
+    const LOG_TOP=H-40-65-8-40,LOG_BOTTOM=m+30;
+    function layoutLogPages(){
+      const pages=[];let cur=[];let y=LOG_TOP;
+      for(const r of logRows){
+        const h=Math.max(r.c0.length,r.c1.length,r.c2.length,1)*10.5+8;
+        if(y-h<LOG_BOTTOM&&cur.length){pages.push(cur);cur=[];y=LOG_TOP;}
+        cur.push({...r,y,h});y-=h;
+      }
+      if(cur.length)pages.push(cur);
+      return pages;
+    }
+    const logPages=layoutLogPages();
+    const logPageCount=logPages.length;
+
+    // ---- Phase 2: compute page numbers (cover=1, TOC, response log, then products) ----
+    let runningPage=2+tocPageCount+logPageCount;
     const pageMapForSave={};
     orderedProducts.forEach(p=>{
       const info=attachInfo[p.id];
@@ -908,13 +973,13 @@ async function generatePDF(){
         pageMapForSave[p.id]={attachStart,attachEnd,sourcePdfUrl:info.sourcePdfUrl};
       }
     });
-    tocEntries.forEach(e=>{if(e.type==='item')e.page=attachInfo[e.productId].detailPageNum;});
+    tocEntries.forEach(e=>{if(e.type==='item'){const ai=attachInfo[e.productId];e.page=ai?ai.detailPageNum:null;}});
     const totalPages=runningPage-1;
 
     // ---- Draw cover page ----
     const cp=final.addPage([W,H]);
     drawPageNum(cp,1,totalPages);
-    const clY=drawHeader(cp,'PROJECT SUBMITTALS');
+    const clY=drawHeader(cp,revMode?('RESUBMITTAL - REV '+revNum):'PROJECT SUBMITTALS');
     const halfW=(W-2*m)/2;let cy=clY-22;
 
     function drawCoverBlock(page,cx,startY,label,content,colW){
@@ -937,7 +1002,12 @@ async function generatePDF(){
     cp.drawText('Date:    '+(j.date||'')+'          Project #:    '+(j.number||'N/A'),{x:m,y:ciY,size:10,font,color:BLACK});
     cy=ciY-22;
     cp.drawLine({start:{x:m,y:cy},end:{x:W-m,y:cy},thickness:1.5,color:BLACK});cy-=20;
-    for(const ln of wrapText(font,'Please review the attached submittals and return with a stamped approval or request any changes necessary to obtain approval.',W-2*m,10)){
+    const coverNote=mode==='changes'
+      ?('This resubmittal responds to the review by '+rvConsultant(j)+(revDate?' dated '+revDate:'')+'. Only the products that require action are attached. Products that were reviewed without exception are listed in the table of contents and are not resubmitted. The Response Log lists each comment and our response. Please review and return with a stamped approval or request any changes necessary to obtain approval.')
+      :mode==='full'
+      ?('This is the complete submittal set, updated after the review by '+rvConsultant(j)+(revDate?' dated '+revDate:'')+'. Products that require action are marked in the table of contents and listed in the Response Log with our response. Please review and return with a stamped approval or request any changes necessary to obtain approval.')
+      :'Please review the attached submittals and return with a stamped approval or request any changes necessary to obtain approval.';
+    for(const ln of wrapText(font,coverNote,W-2*m,10)){
       cp.drawText(ln,{x:m,y:cy,size:10,font,color:BLACK});cy-=14;
     }
 
@@ -951,7 +1021,11 @@ async function generatePDF(){
         if(line.type==='header'){
           page.drawText(line.text.toUpperCase(),{x:m,y:line.y,size:11,font:fontB,color:BLACK});
         }else{
-          const pageNumText=String(line.page);
+          const rvp=revMode?line.prod:null,rvs=rvp&&RV_STATUS[rvp.rv_status]?RV_STATUS[rvp.rv_status]:null;
+          if(rvs)page.drawRectangle({x:m,y:line.y-0.5,width:6,height:6,color:rgb(...rvs.color)});
+          else if(rvp)page.drawRectangle({x:m,y:line.y-0.5,width:6,height:6,borderColor:rgb(0.6,0.6,0.6),borderWidth:0.7});
+          let pageNumText=line.page?String(line.page):'';
+          if(!line.page){pageNumText=(rvp&&rvp.rv_status==='rejected')?'Rejected - removed':(rvp&&rvp.rv_status==='approved')?'Approved - no change':'No change';}
           const pnW=font.widthOfTextAtSize(pageNumText,10);
           const maxTextW=W-2*m-20-pnW-10;
           let dispText=line.text;
@@ -961,8 +1035,39 @@ async function generatePDF(){
           const dotEndX=W-m-pnW-4;
           let dx=dotStartX;
           while(dx<dotEndX){page.drawText('.',{x:dx,y:line.y,size:10,font,color:LGRAY});dx+=4;}
-          page.drawText(pageNumText,{x:W-m-pnW,y:line.y,size:10,font,color:BLACK});
+          page.drawText(pageNumText,{x:W-m-pnW,y:line.y,size:10,font:line.page?font:fontI,color:line.page?BLACK:(rvs?rgb(...rvs.color):GRAY)});
         }
+      });
+      if(revMode){
+        let lx=m;const ly=42;
+        const legTitle=rvConsultant(j)+' review:';
+        page.drawText(legTitle,{x:lx,y:ly,size:8,font:fontB,color:GRAY});lx+=fontB.widthOfTextAtSize(legTitle,8)+14;
+        Object.entries(RV_STATUS).forEach(([key,st])=>{
+          const lbl=rvLegendLabel(j,key);
+          page.drawRectangle({x:lx,y:ly-0.5,width:6,height:6,color:rgb(...st.color)});
+          page.drawText(lbl,{x:lx+9,y:ly,size:8,font,color:GRAY});
+          lx+=9+font.widthOfTextAtSize(lbl,8)+14;
+        });
+      }
+    });
+
+    // ---- Draw response log ----
+    logPages.forEach((rows,li)=>{
+      const page=final.addPage([W,H]);
+      drawPageNum(page,2+tocPageCount+li,totalPages);
+      const hy=drawHeader(page,'RESPONSE LOG');
+      const hdrY=hy-20;
+      ['Product',rvConsultant(j)+' review','Our response','Page'].forEach((t,k)=>page.drawText(t,{x:LOG_X[k],y:hdrY,size:9,font:fontB,color:BLACK}));
+      page.drawLine({start:{x:m,y:hdrY-5},end:{x:W-m,y:hdrY-5},thickness:0.8,color:BLACK});
+      rows.forEach(r=>{
+        const rvs=RV_STATUS[r.prod.rv_status];
+        if(rvs)page.drawRectangle({x:m-9,y:r.y-8,width:5,height:5,color:rgb(...rvs.color)});
+        r.c0.forEach((t,k)=>page.drawText(t,{x:LOG_X[0],y:r.y-8-k*10.5,size:8.5,font:fontB,color:BLACK}));
+        r.c1.forEach((t,k)=>page.drawText(t,{x:LOG_X[1],y:r.y-8-k*10.5,size:8.5,font:k===0?fontB:font,color:k===0&&rvs?rgb(...rvs.color):BLACK}));
+        r.c2.forEach((t,k)=>page.drawText(t,{x:LOG_X[2],y:r.y-8-k*10.5,size:8.5,font,color:BLACK}));
+        const ai=attachInfo[r.prod.id];
+        page.drawText(ai?('p. '+ai.detailPageNum):'not resubmitted',{x:LOG_X[3],y:r.y-8,size:8.5,font,color:GRAY});
+        page.drawLine({start:{x:m,y:r.y-r.h+2},end:{x:W-m,y:r.y-r.h+2},thickness:0.3,color:rgb(0.8,0.8,0.8)});
       });
     });
 
@@ -1009,6 +1114,31 @@ async function generatePDF(){
       let dy=dStartY+(dLines.length-1)*11;
       for(const ln of dLines){page.drawText(ln,{x:m,y:dy,size:8.5,font:fontI,color:GRAY});dy-=11;}
 
+      if(revMode&&RV_STATUS[p.rv_status]&&p.rv_status!=='approved'){
+        const st=RV_STATUS[p.rv_status];
+        const badge='REV '+revNum+' - '+rvLabel(p).toUpperCase();
+        const bw=fontB.widthOfTextAtSize(badge,8.5)+14;
+        page.drawRectangle({x:W-m-bw,y:H-38,width:bw,height:17,borderColor:rgb(...st.color),borderWidth:1.2});
+        page.drawText(badge,{x:W-m-bw+7,y:H-33,size:8.5,font:fontB,color:rgb(...st.color)});
+        const parts=[];
+        if(p.rv_comment)parts.push({b:rvConsultant(j)+' review'+(revDate?' ('+revDate+')':'')+': ',t:p.rv_comment});
+        if(p.rv_response)parts.push({b:'Woodstock response: ',t:p.rv_response});
+        if(parts.length){
+          const bw2=W-2*m-16;
+          const lines=[];parts.forEach(pt=>{wrapText(font,pt.b+pt.t,bw2,9).forEach((t,k)=>lines.push({t,bold:k===0?pt.b:null}));});
+          const boxH=lines.length*11.5+14,discTop=dStartY+(dLines.length-1)*11+12,boxBottom=discTop+8,boxTop=boxBottom+boxH;
+          if(y-boxTop>8){
+            page.drawRectangle({x:m,y:boxBottom,width:W-2*m,height:boxH,borderColor:rgb(...st.color),borderWidth:1});
+            let by=boxBottom+boxH-14;
+            lines.forEach(l=>{
+              if(l.bold){page.drawText(l.bold,{x:m+8,y:by,size:9,font:fontB,color:BLACK});page.drawText(l.t.slice(l.bold.length).trimStart(),{x:m+8+fontB.widthOfTextAtSize(l.bold.trimEnd(),9)+3.5,y:by,size:9,font,color:BLACK});}
+              else page.drawText(l.t,{x:m+8,y:by,size:9,font,color:BLACK});
+              by-=11.5;
+            });
+          }
+        }
+      }
+
       const info=attachInfo[p.id];
       if(info.doc){
         const copied=await final.copyPages(info.doc,info.doc.getPageIndices());
@@ -1020,7 +1150,7 @@ async function generatePDF(){
     const blob=new Blob([bytes],{type:'application/pdf'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
-    a.href=url;a.download=(j.name||'Project').replace(/\s+/g,'-')+'-Submittals.pdf';
+    a.href=url;a.download=(j.name||'Project').replace(/\s+/g,'-')+'-Submittals'+(mode==='full'?'-Rev'+revNum+'-Full':mode==='changes'?'-Rev'+revNum+'-Changes':'')+'.pdf';
     a.click();URL.revokeObjectURL(url);
 
     const lastPageMap={generatedAt:Date.now(),totalPages:runningPage-1,map:pageMapForSave};
